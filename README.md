@@ -16,7 +16,7 @@ Clone the git repository in your home folder.
 
     git clone git://github.com/TobiasTheViking/megaannex.git 
 
-This should make a ~/megannex folder
+This should make a ~/megaannex folder
 
 ## Setup
 Run the program once to make an empty config file
