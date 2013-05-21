@@ -3,12 +3,13 @@ megaannex
 
 Hook program for gitannex to use mega.co.nz as backend
 
-Requirements:
-requests>=0.10
-pycrypto
-mega.py
+# Requirements:
 
-The "megaapi" folder is a pull from https://github.com/richardasaurus/mega.py 
+    requests>=0.10
+    pycrypto
+    mega.py
+
+Credit for the mega api interface goes to: https://github.com/richardasaurus/mega.py 
 
 ## Commands for gitannex:
 
