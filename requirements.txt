@@ -1,0 +1,3 @@
+requests>=0.10
+pycrypto
+mega.py
