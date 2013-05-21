@@ -149,7 +149,6 @@ def main():
         print("No username or password found in config")
         sys.exit(1)
 
-    print("BLA: " + repr(conf) + " - " + repr(type(conf)))
     login(conf["uname"], conf["pword"])
     if "store" in sys.argv:
         postFile(sys.argv[sys.argv.index("--subject") + 1], sys.argv[sys.argv.index("--file") + 1])
