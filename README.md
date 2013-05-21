@@ -5,6 +5,7 @@ Hook program for gitannex to use mega.co.nz as backend
 
 # Requirements:
 
+    python2
     requests>=0.10
     pycrypto
 
