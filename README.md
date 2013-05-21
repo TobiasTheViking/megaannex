@@ -7,7 +7,6 @@ Hook program for gitannex to use mega.co.nz as backend
 
     requests>=0.10
     pycrypto
-    mega.py
 
 Credit for the mega api interface goes to: https://github.com/richardasaurus/mega.py 
 
