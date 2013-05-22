@@ -58,6 +58,8 @@ def checkFile(subject):
     global m
 
     file = m.find(subject)
+    if dbglevel > 0:
+        print("found: " + repr(file))
 
     if file:
         print(subject)
@@ -68,6 +70,8 @@ def getFile(subject, filename):
     global m
 
     file = m.find(subject)
+    if dbglevel > 0:
+        print("found: " + repr(file))
 
     if file:
         res = m.download(file, pwd + "/temp/")
@@ -91,7 +95,7 @@ def deleteFile(subject):
         #print(m.delete(file[0]))
         res = m.destroy(file[0])
         if dbglevel > 0:
-            print(res)
+            print("res: " + repr(res))
         #print(m.delete_url(link))
         #print(m.destroy_url(link))
 
@@ -150,16 +154,18 @@ def main():
         sys.exit(1)
 
     login(conf["uname"], conf["pword"])
-    if "store" in sys.argv:
-        postFile(sys.argv[sys.argv.index("--subject") + 1], sys.argv[sys.argv.index("--file") + 1])
-    elif "fileexists" in sys.argv:
-        checkFile(sys.argv[sys.argv.index("--subject") + 1])
-    elif "getfile" in sys.argv:
-        getFile(sys.argv[sys.argv.index("--subject") + 1], sys.argv[sys.argv.index("--file") + 1])
-    elif "delete" in sys.argv:
-        deleteFile(sys.argv[sys.argv.index("--subject") + 1])
+    act = os.getenv("ANNEX_ACTION")
+    if "store" == act:
+        postFile(os.getenv("ANNEX_HASH_1"), os.getenv("ANNEX_FILE"))
+    elif "checkpresent" == act:
+        checkFile(os.getenv("ANNEX_HASH_1"))
+    elif "retrieve" == act:
+        getFile(os.getenv("ANNEX_HASH_1"), os.getenv("ANNEX_FILE"))
+    elif "remove" == act:
+        deleteFile(os.getenv("ANNEX_HASH_1"))
     else:
         print("ERROR")
+        sys.exit(1)
 
 if __name__ == '__main__':
     main()
