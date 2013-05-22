@@ -20,7 +20,6 @@ if dbglevel > 3:
 else:
     mega = Mega()
 
-dbglevel = 3
 m = False
 
 def login(uname, pword):
