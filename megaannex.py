@@ -19,6 +19,8 @@ if dbglevel > 3:
     mega = Mega({'verbose': True})  # verbose option for print output
 else:
     mega = Mega()
+
+dbglevel = 3
 m = False
 
 def login(uname, pword):
@@ -39,11 +41,19 @@ def login(uname, pword):
 
 def postFile(subject, filename):
     if dbglevel > 0:
-        print("postFile: " + subject)
+        print("postFile %s to %s - %s" % ( filename, conf["folder"], subject))
     global m
     
-    #def upload(self, filename, dest=None, dest_filename=None):
-    res = m.upload(filename, dest=conf["folder"], dest_filename=subject)
+    folder = m.find(subject)
+    if folder:
+        if dbglevel > 0:
+            print("postFile File already exists: " + repr(folder))
+        return True
+        
+    folder = m.find(conf["folder"])
+    if dbglevel > 0:
+        print("postFile to folder:" + repr(folder))
+    res = m.upload(filename, dest=folder[0], dest_filename=subject)
     if res:
         if dbglevel > 0:
             print(res)
@@ -149,21 +159,37 @@ def main():
         sys.exit(1)
 
     login(conf["uname"], conf["pword"])
-    if not m.find(conf["folder"]):
+    folder = m.find(conf["folder"])
+    if dbglevel > 0:
+        print("Using folder:" + repr(folder))
+    if not folder:
         d = m.create_folder(conf["folder"])
         if dbglevel > 0:
             print("CREATE_FOLDER: " + repr(d))
+            
+    ANNEX_ACTION = os.getenv("ANNEX_ACTION")
+    ANNEX_HASH_1 = os.getenv("ANNEX_HASH_1")
+    ANNEX_HASH_2 = os.getenv("ANNEX_HASH_2")
+    ANNEX_FILE = os.getenv("ANNEX_FILE")
+    if dbglevel > 0:
+        print("ANNEX_ACTION: " + repr(ANNEX_ACTION))
+        print("ANNEX_HASH_1: " + repr(ANNEX_HASH_1))
+        print("ANNEX_HASH_2: " + repr(ANNEX_HASH_2))
+        print("ANNEX_FILE: " + repr(ANNEX_FILE))
 
+    if len(ANNEX_HASH_1) == 2:
+        ANNEX_HASH_1 = os.path.basename(str(ANNEX_FILE))
+        if dbglevel > 0:
+            print("ANNEX_HASH_1: " + repr(ANNEX_HASH_1))
 
-    act = os.getenv("ANNEX_ACTION")
-    if "store" == act:
-        postFile(os.getenv("ANNEX_HASH_1"), os.getenv("ANNEX_FILE"))
-    elif "checkpresent" == act:
-        checkFile(os.getenv("ANNEX_HASH_1"))
-    elif "retrieve" == act:
-        getFile(os.getenv("ANNEX_HASH_1"), os.getenv("ANNEX_FILE"))
-    elif "remove" == act:
-        deleteFile(os.getenv("ANNEX_HASH_1"))
+    if "store" == ANNEX_ACTION:
+        postFile(ANNEX_HASH_1, ANNEX_FILE)
+    elif "checkpresent" == ANNEX_ACTION:
+        checkFile(ANNEX_HASH_1)
+    elif "retrieve" == ANNEX_ACTION:
+        getFile(ANNEX_HASH_1, ANNEX_FILE)
+    elif "remove" == ANNEX_ACTION:
+        deleteFile(ANNEX_HASH_1)
     else:
         print("ERROR")
         sys.exit(1)

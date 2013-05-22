@@ -23,7 +23,7 @@ Run the program once to make an empty config file
 
     cd ~/megaannex; python2 megaannex.py
 
-Edit the megaannex.conf file. Add your mega.co.nz username and password
+Edit the megaannex.conf file. Add your mega.co.nz username, password and folder name.
 
 ## Commands for gitannex:
 
