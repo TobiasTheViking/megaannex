@@ -25,8 +25,6 @@ Run the program once to make an empty config file
 
 Edit the megaannex.conf file. Add your mega.co.nz username and password
 
-Note: The folder option in the megaannex.conf file isn't yet used. 
-
 ## Commands for gitannex:
 
     git config annex.mega-hook '/usr/bin/python2 ~/megaannex/megaannex.py'

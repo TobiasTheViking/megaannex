@@ -21,9 +21,6 @@ else:
     mega = Mega()
 m = False
 
-if not os.path.exists(pwd + "/temp/"):
-    os.mkdir(pwd + "/temp/")
-
 def login(uname, pword):
     if dbglevel > 0:
         print("login: " + uname)
@@ -31,21 +28,22 @@ def login(uname, pword):
     m = mega.login(uname, pword)
 
     # get user details
-    details = m.get_user()
-    if dbglevel > 0:
-        print("login: " + repr(details))
+    if dbglevel > 5:
+        print("details: " + repr(m.get_user()))
     # get account disk quota in MB
-    if dbglevel > 0:
-        print(m.get_quota())
+    if dbglevel > 5:
+        print("quota:" + str(m.get_quota()))
     # get account storage space
-    if dbglevel > 0:
-        print(m.get_storage_space())
+    if dbglevel > 5:
+        print("space: " + str(m.get_storage_space()))
 
 def postFile(subject, filename):
     if dbglevel > 0:
         print("postFile: " + subject)
     global m
-    res = m.upload(filename)
+    
+    #def upload(self, filename, dest=None, dest_filename=None):
+    res = m.upload(filename, dest=conf["folder"], dest_filename=subject)
     if res:
         if dbglevel > 0:
             print(res)
@@ -74,11 +72,8 @@ def getFile(subject, filename):
         print("found: " + repr(file))
 
     if file:
-        res = m.download(file, pwd + "/temp/")
-        if os.path.exists(pwd + "/temp/" + subject) or res:
-            if dbglevel > 0:
-                print("getFile Moving: " + repr(file))
-            os.rename(pwd + "/temp/" + subject, filename)
+        dest, dest_filename = os.path.split(filename)
+        res = m.download(file, dest_path=dest, dest_filename=dest_filename)
         if dbglevel > 0:
             print("getFile res: " + repr(res))
 
@@ -154,6 +149,23 @@ def main():
         sys.exit(1)
 
     login(conf["uname"], conf["pword"])
+    if False and not m.find(conf["folder"]):
+        d = m.create_folder(conf["folder"])
+        if dbglevel > 0:
+            print("CREATE_FOLDER: " + repr(d))
+
+    #data = m.get_files()
+    #dest = m.find(conf["folder"])
+    data = []
+    for f in data:
+        print("Moving %s to %s" % (repr(f), repr(dest)))
+        #print("Moving %s to %s" % (repr(m.find(conf["folder"])), repr(data[f])))
+        try:
+            res = m.move(f, dest)
+            print("RES: " + repr(res))
+        except Exception as E:
+            print("EXCEPTION: " + repr(E))
+
     act = os.getenv("ANNEX_ACTION")
     if "store" == act:
         postFile(os.getenv("ANNEX_HASH_1"), os.getenv("ANNEX_FILE"))
