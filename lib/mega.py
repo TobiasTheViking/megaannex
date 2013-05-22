@@ -113,7 +113,21 @@ class Mega(object):
 
         #if numeric error code response
         if isinstance(json_resp, int):
-            raise RequestError(json_resp)
+            if json_resp == -3:
+                print("Sleeping for 1s: " + repr(RequestError(json_resp)))
+                time.sleep(1)
+                req = requests.post(
+                    '{0}://g.api.{1}/cs'.format(self.schema, self.domain),
+                    params=params,
+                    data=json.dumps(data),
+                    timeout=self.timeout)
+                json_resp = json.loads(req.text)
+
+                if isinstance(json_resp, int):
+                    raise RequestError(json_resp)
+            else:
+                raise RequestError(json_resp)
+
         return json_resp[0]
 
     def parse_url(self, url):
