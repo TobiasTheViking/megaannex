@@ -154,16 +154,6 @@ def main():
         if dbglevel > 0:
             print("CREATE_FOLDER: " + repr(d))
 
-    data = m.get_files()
-    dest = m.find(conf["folder"])
-    for f in data:
-        print("Moving %s to %s" % (repr(f), repr(dest)))
-        #print("Moving %s to %s" % (repr(m.find(conf["folder"])), repr(data[f])))
-        try:
-            res = m.move(f, dest)
-            print("RES: " + repr(res))
-        except Exception as E:
-            print("EXCEPTION: " + repr(E))
 
     act = os.getenv("ANNEX_ACTION")
     if "store" == act:
