@@ -149,14 +149,13 @@ def main():
         sys.exit(1)
 
     login(conf["uname"], conf["pword"])
-    if False and not m.find(conf["folder"]):
+    if not m.find(conf["folder"]):
         d = m.create_folder(conf["folder"])
         if dbglevel > 0:
             print("CREATE_FOLDER: " + repr(d))
 
-    #data = m.get_files()
-    #dest = m.find(conf["folder"])
-    data = []
+    data = m.get_files()
+    dest = m.find(conf["folder"])
     for f in data:
         print("Moving %s to %s" % (repr(f), repr(dest)))
         #print("Moving %s to %s" % (repr(m.find(conf["folder"])), repr(data[f])))
