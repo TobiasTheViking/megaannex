@@ -7,7 +7,8 @@ import inspect
 
 conf = False
 m = False
-plugin = "megaannex"
+version = "0.1.0"
+plugin = "megaannex-" + version
 
 pwd = os.path.dirname(__file__)
 if not pwd:
@@ -183,7 +184,7 @@ def main():
     if folder:
         log("Using folder: " + repr(folder[0]))
         ANNEX_FOLDER = folder
-    else:
+    elif conf["folder"]:
         folder = m.create_folder(conf["folder"], 2)
         log("created folder0: " + repr(folder["f"][0]["h"]))
         ANNEX_FOLDER = [folder["f"][0]["h"]]
@@ -192,7 +193,7 @@ def main():
     if folder:
         log("Using folder1: " + repr(folder[0]))
         ANNEX_FOLDER = folder
-    else:
+    elif ANNEX_HASH_1:
         folder = m.create_folder(ANNEX_HASH_1, ANNEX_FOLDER[0])
         log("created folder1: " + repr(folder["f"][0]["h"]))
         ANNEX_FOLDER = [folder["f"][0]["h"]]
@@ -201,7 +202,7 @@ def main():
     if folder:
         log("Using folder2: " + repr(folder[0]))
         ANNEX_FOLDER = folder
-    else:
+    elif ANNEX_HASH_2:
         log("create folder2: " + repr(ANNEX_FOLDER))
         folder = m.create_folder(ANNEX_HASH_2, ANNEX_FOLDER[0])
         log("created folder2: " + repr(folder["f"][0]["h"]))
