@@ -217,7 +217,14 @@ def main():
     elif "remove" == ANNEX_ACTION:
         deleteFile(ANNEX_KEY, ANNEX_FOLDER)
     else:
-        log("ERROR")
+        setup = '''
+Please run the following commands in your annex directory:
+
+git config annex.flickr-hook '/usr/bin/python2 %s/flickrannex.py'
+git annex initremote flickr type=hook hooktype=flickr encryption=%s
+git annex describe flickr "the flickr library"
+''' % (os.getcwd(), "shared")
+        print setup
         sys.exit(1)
 
 t = time.time()
