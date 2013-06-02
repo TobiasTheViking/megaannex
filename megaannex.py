@@ -7,7 +7,7 @@ import inspect
 
 conf = False
 m = False
-version = "0.1.0"
+version = "0.1.1"
 plugin = "megaannex-" + version
 
 pwd = os.path.dirname(__file__)
@@ -21,6 +21,8 @@ else:
     dbglevel = 0
 
 from mega import Mega
+import errors
+
 if dbglevel > 3:
     mega = Mega({'verbose': True})  # verbose option for print output
 else:
@@ -30,9 +32,9 @@ def log(description, level=0):
     if dbglevel > level:
         timestamp = time.strftime("%H:%M:%S", time.localtime())
         try:
-            data = "%s [%s] %s : '%s'" % (timestamp, plugin, inspect.stack()[1][3], description)
+            data = " %s [%s] %s : '%s'" % (timestamp, plugin, inspect.stack()[1][3], description)
         except:
-            data = "FALLBACK %s [%s] %s : '%s'" % (timestamp, plugin, inspect.stack()[1][3], repr(description))
+            data = " FALLBACK %s [%s] %s : '%s'" % (timestamp, plugin, inspect.stack()[1][3], repr(description))
         if "--stderr" in sys.argv:
             sys.stderr.write(data + "\n")
         else:
@@ -41,10 +43,20 @@ def log(description, level=0):
 def login(uname, pword):
     log(uname)
     global m
-    m = mega.login(uname, pword)
 
-    if False:
-        log(repr(m.get_user()), 3)
+    delay = 1
+    while not m and delay < 10:
+        try:
+            m = mega.login(uname, pword)
+        except errors.RequestError as e:
+            if e[0] == -3:
+                log("[%s] EAGAIN: Retrying with exponential backoff: %s " %( repr(e[0]), repr(delay)))
+                time.sleep(delay)
+                delay += 1
+            else:
+                log("errors.RequestError: " + repr(e))
+                sys.exit(1)
+
     log("Done")
 
 def postFile(subject, filename, folder):
@@ -55,8 +67,21 @@ def postFile(subject, filename, folder):
     if file:
         log("File already exists: " + repr(file))
         return True
-        
-    res = m.upload(filename, dest=folder[0], dest_filename=subject)
+
+    delay = 1
+    res = False
+    while not res and delay < 10:
+        try:
+            res = m.upload(filename, dest=folder[0], dest_filename=subject)
+        except errors.RequestError as e:
+            if e[0] == -3:
+                log("[%s] EAGAIN: Retrying with exponential backoff: %s " %( repr(e[0]), repr(delay)))
+                time.sleep(delay)
+                delay += 1
+            else:
+                log("errors.RequestError: " + repr(e))
+                sys.exit(1)
+
     if res:
         log("Done: " + repr(res["f"][0]["h"]))
     else:
@@ -67,12 +92,23 @@ def findInFolder(subject, folder):
     if isinstance(folder, int):
         folder = [folder]
 
-    for file in m.get_files_in_node(folder[0]).items():
-        if folder[0] == 2:
-            log("Root: " + repr(file[1]['a']) + " - " + repr(file), 3)
-        if file[1]['a'] and file[1]['a']['n'] == subject:
-            log("found file: " + repr(file), 3)
-            return file
+    delay = 1
+    while delay < 10:
+        try:
+            for file in m.get_files_in_node(folder[0]).items():
+                if folder[0] == 2:
+                    log("Root: " + repr(file[1]['a']) + " - " + repr(file), 3)
+                if file[1]['a'] and file[1]['a']['n'] == subject:
+                    log("found file: " + repr(file), 3)
+                    return file
+        except errors.RequestError as e:
+            if e[0] == -3:
+                log("[%s] EAGAIN: Retrying with exponential backoff: %s " %( repr(e[0]), repr(delay)))
+                time.sleep(delay)
+                delay += 1
+            else:
+                log("errors.RequestError: " + repr(e))
+                sys.exit(1)
     log("Failure")
 
 def checkFile(subject, folder):
@@ -93,7 +129,21 @@ def getFile(subject, filename, folder):
     file = findInFolder(subject, folder)
     if file:
         dest, dest_filename = os.path.split(filename)
-        res = m.download(file, dest_path=dest, dest_filename=dest_filename)
+
+        delay = 1
+        res = False
+        while not res and delay < 10:
+            try:
+                res = m.download(file, dest_path=dest, dest_filename=dest_filename)
+            except errors.RequestError as e:
+                if e[0] == -3:
+                    log("[%s] EAGAIN: Retrying with exponential backoff: %s " %( repr(e[0]), repr(delay)))
+                    time.sleep(delay)
+                    delay += 1
+                else:
+                    log("errors.RequestError: " + repr(e))
+                    sys.exit(1)
+
         log("Done: " + repr(res))
     else:
         log("Failure")
@@ -106,9 +156,19 @@ def deleteFile(subject, folder):
     file = findInFolder(subject, folder)
 
     if file:
-        #delete or destroy file. by id or url
-        #log(m.delete(file[0]))
-        res = m.destroy(file[0])
+        delay = 1
+        res = False
+        while not res and delay < 10:
+            try:
+                res = m.destroy(file[0])
+            except errors.RequestError as e:
+                if e[0] == -3:
+                    log("[%s] EAGAIN: Retrying with exponential backoff: %s " %( repr(e[0]), repr(delay)))
+                    time.sleep(delay)
+                    delay += 1
+                else:
+                    log("errors.RequestError: " + repr(e))
+                    sys.exit(1)
 
         log("Done: " + repr(res))
     else:
@@ -137,6 +197,29 @@ def saveFile(fname, content, flags="w"):
     t.write(content)
     t.close()
     log("Done")
+
+def createFolder(subject, folder):
+    log("%s - %s" % (subject, folder))
+
+    delay = 1
+    res = False
+    while not res and delay < 10:
+        try:
+            res = m.create_folder(subject, folder)
+        except errors.RequestError as e:
+            if e[0] == -3:
+                log("[%s] EAGAIN: Retrying with exponential backoff: %s " %( repr(e[0]), repr(delay)))
+                time.sleep(delay)
+                delay += 1
+            else:
+                log("errors.RequestError: " + repr(e))
+                sys.exit(1)
+    if res:
+        log("Done: " + repr(res))
+        return res
+    else:
+        sys.exit(1)
+
 
 def main():
     global conf
@@ -185,7 +268,7 @@ def main():
         log("Using folder: " + repr(folder[0]))
         ANNEX_FOLDER = folder
     elif conf["folder"]:
-        folder = m.create_folder(conf["folder"], 2)
+        folder = createFolder(conf["folder"], 2)
         log("created folder0: " + repr(folder["f"][0]["h"]))
         ANNEX_FOLDER = [folder["f"][0]["h"]]
 
@@ -194,7 +277,7 @@ def main():
         log("Using folder1: " + repr(folder[0]))
         ANNEX_FOLDER = folder
     elif ANNEX_HASH_1:
-        folder = m.create_folder(ANNEX_HASH_1, ANNEX_FOLDER[0])
+        folder = createFolder(ANNEX_HASH_1, ANNEX_FOLDER[0])
         log("created folder1: " + repr(folder["f"][0]["h"]))
         ANNEX_FOLDER = [folder["f"][0]["h"]]
 
@@ -204,7 +287,7 @@ def main():
         ANNEX_FOLDER = folder
     elif ANNEX_HASH_2:
         log("create folder2: " + repr(ANNEX_FOLDER))
-        folder = m.create_folder(ANNEX_HASH_2, ANNEX_FOLDER[0])
+        folder = createFolder(ANNEX_HASH_2, ANNEX_FOLDER[0])
         log("created folder2: " + repr(folder["f"][0]["h"]))
         ANNEX_FOLDER = [folder["f"][0]["h"]]
 
@@ -228,6 +311,8 @@ git annex describe flickr "the flickr library"
         sys.exit(1)
 
 t = time.time()
+if dbglevel > 0:
+    print("")
 log("START")
 if __name__ == '__main__':
     main()
