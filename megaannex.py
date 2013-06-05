@@ -7,7 +7,7 @@ import inspect
 
 conf = False
 m = False
-version = "0.1.1"
+version = "0.1.2"
 plugin = "megaannex-" + version
 
 pwd = os.path.dirname(__file__)
@@ -95,9 +95,11 @@ def findInFolder(subject, folder):
     delay = 1
     while delay < 10:
         try:
-            for file in m.get_files_in_node(folder[0]).items():
-                if folder[0] == 2:
-                    log("Root: " + repr(file[1]['a']) + " - " + repr(file), 3)
+            files = m.get_files_in_node(folder[0]).items()
+            if len(files) == 0:
+                log("Empty folder, breaking")
+                break
+            for file in files:
                 if file[1]['a'] and file[1]['a']['n'] == subject:
                     log("found file: " + repr(file), 3)
                     return file
@@ -312,7 +314,11 @@ git annex describe flickr "the flickr library"
 
 t = time.time()
 if dbglevel > 0:
-    print("")
+    if "--stderr" in sys.argv:
+        sys.stderr.write("\n")
+    else:
+        print("")
+
 log("START")
 if __name__ == '__main__':
     main()
