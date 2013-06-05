@@ -139,7 +139,8 @@ def getFile(subject, filename, folder):
         res = False
         while not res and delay < 10:
             try:
-                res = m.download(file, dest_path=dest, dest_filename=dest_filename)
+                m.download(file, dest_path=dest, dest_filename=dest_filename)
+                res = True
             except errors.RequestError as e:
                 if e[0] == -3:
                     log("[%s] EAGAIN: Retrying with exponential backoff: %s " %( repr(e[0]), repr(delay)))
