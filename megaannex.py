@@ -268,33 +268,34 @@ def main():
         sys.exit(1)
 
     login(conf["uname"], conf["pword"])
-    folder = findInFolder(conf["folder"], 2)
-    if folder:
-        log("Using folder: " + repr(folder[0]))
-        ANNEX_FOLDER = folder
-    elif conf["folder"]:
-        folder = createFolder(conf["folder"], 2)
-        log("created folder0: " + repr(folder["f"][0]["h"]))
-        ANNEX_FOLDER = [folder["f"][0]["h"]]
+    if ANNEX_HASH_1 and ANNEX_HASH_2:
+        folder = findInFolder(conf["folder"], 2)
+        if folder:
+            log("Using folder: " + repr(folder[0]))
+            ANNEX_FOLDER = folder
+        elif conf["folder"]:
+            folder = createFolder(conf["folder"], 2)
+            log("created folder0: " + repr(folder["f"][0]["h"]))
+            ANNEX_FOLDER = [folder["f"][0]["h"]]
+        
+        folder = findInFolder(ANNEX_HASH_1, ANNEX_FOLDER)
+        if folder:
+            log("Using folder1: " + repr(folder[0]))
+            ANNEX_FOLDER = folder
+        elif ANNEX_HASH_1:
+            folder = createFolder(ANNEX_HASH_1, ANNEX_FOLDER[0])
+            log("created folder1: " + repr(folder["f"][0]["h"]))
+            ANNEX_FOLDER = [folder["f"][0]["h"]]
 
-    folder = findInFolder(ANNEX_HASH_1, ANNEX_FOLDER)
-    if folder:
-        log("Using folder1: " + repr(folder[0]))
-        ANNEX_FOLDER = folder
-    elif ANNEX_HASH_1:
-        folder = createFolder(ANNEX_HASH_1, ANNEX_FOLDER[0])
-        log("created folder1: " + repr(folder["f"][0]["h"]))
-        ANNEX_FOLDER = [folder["f"][0]["h"]]
-
-    folder = findInFolder(ANNEX_HASH_2, ANNEX_FOLDER)
-    if folder:
-        log("Using folder2: " + repr(folder[0]))
-        ANNEX_FOLDER = folder
-    elif ANNEX_HASH_2:
-        log("create folder2: " + repr(ANNEX_FOLDER))
-        folder = createFolder(ANNEX_HASH_2, ANNEX_FOLDER[0])
-        log("created folder2: " + repr(folder["f"][0]["h"]))
-        ANNEX_FOLDER = [folder["f"][0]["h"]]
+        folder = findInFolder(ANNEX_HASH_2, ANNEX_FOLDER)
+        if folder:
+            log("Using folder2: " + repr(folder[0]))
+            ANNEX_FOLDER = folder
+        elif ANNEX_HASH_2:
+            log("create folder2: " + repr(ANNEX_FOLDER))
+            folder = createFolder(ANNEX_HASH_2, ANNEX_FOLDER[0])
+            log("created folder2: " + repr(folder["f"][0]["h"]))
+            ANNEX_FOLDER = [folder["f"][0]["h"]]
 
     if "store" == ANNEX_ACTION:
         postFile(ANNEX_KEY, ANNEX_FILE, ANNEX_FOLDER)
@@ -308,9 +309,9 @@ def main():
         setup = '''
 Please run the following commands in your annex directory:
 
-git config annex.flickr-hook '/usr/bin/python2 %s/flickrannex.py'
-git annex initremote flickr type=hook hooktype=flickr encryption=%s
-git annex describe flickr "the flickr library"
+git config annex.mega-hook '/usr/bin/python2 %s/megaannex.py'
+git annex initremote mega type=hook hooktype=mega encryption=%s
+git annex describe mega "the mega library"
 ''' % (os.getcwd(), "shared")
         print setup
         sys.exit(1)
