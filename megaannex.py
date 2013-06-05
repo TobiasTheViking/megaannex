@@ -96,6 +96,7 @@ def findInFolder(subject, folder):
     while delay < 10:
         try:
             files = m.get_files_in_node(folder[0]).items()
+            log("files: " + repr(len(files)))
             if len(files) == 0:
                 log("Empty folder, breaking")
                 break
@@ -103,6 +104,8 @@ def findInFolder(subject, folder):
                 if file[1]['a'] and file[1]['a']['n'] == subject:
                     log("found file: " + repr(file), 3)
                     return file
+            if len(files) > 0:
+                break
         except errors.RequestError as e:
             if e[0] == -3:
                 log("[%s] EAGAIN: Retrying with exponential backoff: %s " %( repr(e[0]), repr(delay)))
