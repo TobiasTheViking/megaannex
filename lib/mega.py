@@ -7,7 +7,6 @@ import os
 import random
 import binascii
 import requests
-import time
 import shutil
 from errors import ValidationError, RequestError
 from crypto import *
@@ -29,15 +28,15 @@ class Mega(object):
 
     def login(self, email=None, password=None):
         if email:
-            self.login_user(email, password)
+            self._login_user(email, password)
         else:
             self.login_anonymous()
         return self
 
-    def login_user(self, email, password):
+    def _login_user(self, email, password):
         password_aes = prepare_key(str_to_a32(password))
         uh = stringhash(email, password_aes)
-        resp = self.api_request({'a': 'us', 'user': email, 'uh': uh})
+        resp = self._api_request({'a': 'us', 'user': email, 'uh': uh})
         #if numeric error code response
         if isinstance(resp, int):
             raise RequestError(resp)
@@ -48,14 +47,14 @@ class Mega(object):
         password_key = [random.randint(0, 0xFFFFFFFF)] * 4
         session_self_challenge = [random.randint(0, 0xFFFFFFFF)] * 4
 
-        user = self.api_request({
-          'a': 'up',
-          'k': a32_to_base64(encrypt_key(master_key, password_key)),
-          'ts': base64_url_encode(a32_to_str(session_self_challenge) +
-                                  a32_to_str(encrypt_key(session_self_challenge, master_key)))
+        user = self._api_request({
+            'a': 'up',
+            'k': a32_to_base64(encrypt_key(master_key, password_key)),
+            'ts': base64_url_encode(a32_to_str(session_self_challenge) +
+                                    a32_to_str(encrypt_key(session_self_challenge, master_key)))
         })
 
-        resp = self.api_request({'a': 'us', 'user': user})
+        resp = self._api_request({'a': 'us', 'user': user})
         #if numeric error code response
         if isinstance(resp, int):
             raise RequestError(resp)
@@ -93,7 +92,7 @@ class Mega(object):
             sid = binascii.unhexlify('0' + sid if len(sid) % 2 else sid)
             self.sid = base64_url_encode(sid[:43])
 
-    def api_request(self, data):
+    def _api_request(self, data):
         params = {'id': self.sequence_num}
         self.sequence_num += 1
 
@@ -114,19 +113,18 @@ class Mega(object):
         #if numeric error code response
         if isinstance(json_resp, int):
             raise RequestError(json_resp)
-
         return json_resp[0]
 
-    def parse_url(self, url):
+    def _parse_url(self, url):
         #parse file id and key from url
-        if ('!' in url):
+        if '!' in url:
             match = re.findall(r'/#!(.*)', url)
             path = match[0]
             return path
         else:
             raise RequestError('Url key missing')
 
-    def process_file(self, file, shared_keys):
+    def _process_file(self, file, shared_keys):
         """
         Process a file
         """
@@ -181,7 +179,7 @@ class Mega(object):
             file['a'] = {'n': 'Rubbish Bin'}
         return file
 
-    def init_shared_keys(self, files, shared_keys):
+    def _init_shared_keys(self, files, shared_keys):
         """
         Init shared key not associated with a user.
         Seems to happen when a folder is shared,
@@ -201,6 +199,34 @@ class Mega(object):
 
     ##########################################################################
     # GET
+    
+    def find_path_descriptor(self, path):
+        """
+        Find descriptor of folder inside a path. i.e.: folder1/folder2/folder3
+        Params:
+            path, string like folder1/folder2/folder3
+        Return:
+            Descriptor (str) of folder3 if exists, None otherwise
+        """
+        paths = path.split('/')
+
+        files = self.get_files()
+        parent_desc = self.root_id
+        found = False
+        for foldername in paths:
+            if foldername != '':
+                for file in files.iteritems():
+                    if file[1]['a'] and file[1]['t'] and \
+                            file[1]['a']['n'] == foldername:
+                        if parent_desc == file[1]['p']:
+                            parent_desc = file[0]
+                            found = True
+                if found:
+                    found = False
+                else:
+                    return None
+        return parent_desc
+    
     def find(self, filename):
         """
         Return file object from given filename
@@ -214,12 +240,12 @@ class Mega(object):
         """
         Get all files in account
         """
-        files = self.api_request({'a': 'f', 'c': 1})
+        files = self._api_request({'a': 'f', 'c': 1})
         files_dict = {}
         shared_keys = {}
-        self.init_shared_keys(files, shared_keys)
+        self._init_shared_keys(files, shared_keys)
         for file in files['f']:
-            processed_file = self.process_file(file, shared_keys)
+            processed_file = self._process_file(file, shared_keys)
             #ensure each file has a name before returning
             if processed_file['a']:
                 files_dict[file['h']] = processed_file
@@ -232,7 +258,7 @@ class Mega(object):
         """
         if 'f' in file:
             file = file['f'][0]
-            public_handle = self.api_request({'a': 'l', 'n': file['h']})
+            public_handle = self._api_request({'a': 'l', 'n': file['h']})
             file_key = file['k'][file['k'].index(':') + 1:]
             decrypted_key = a32_to_base64(decrypt_key(base64_to_a32(file_key),
                                                       self.master_key))
@@ -250,7 +276,7 @@ class Mega(object):
         """
         file = file[1]
         if 'h' in file and 'k' in file:
-            public_handle = self.api_request({'a': 'l', 'n': file['h']})
+            public_handle = self._api_request({'a': 'l', 'n': file['h']})
             if public_handle == -11:
                 raise RequestError("Can't get a public link from that file (is this a shared file?)")
             decrypted_key = a32_to_base64(file['key'])
@@ -262,7 +288,7 @@ class Mega(object):
             raise ValidationError('File id and key must be present')
 
     def get_user(self):
-        user_data = self.api_request({'a': 'ug'})
+        user_data = self._api_request({'a': 'ug'})
         return user_data
 
     def get_node_by_type(self, type):
@@ -276,7 +302,7 @@ class Mega(object):
         """
         nodes = self.get_files()
         for node in nodes.items():
-            if (node[1]['t'] == type):
+            if node[1]['t'] == type:
                 return node
 
     def get_files_in_node(self, target):
@@ -289,19 +315,19 @@ class Mega(object):
         else:
             node_id = [target]
 
-        files = self.api_request({'a': 'f', 'c': 1})
+        files = self._api_request({'a': 'f', 'c': 1})
         files_dict = {}
         shared_keys = {}
-        self.init_shared_keys(files, shared_keys)
+        self._init_shared_keys(files, shared_keys)
         for file in files['f']:
-            processed_file = self.process_file(file, shared_keys)
+            processed_file = self._process_file(file, shared_keys)
             if processed_file['a'] and processed_file['p'] == node_id[0]:
                 files_dict[file['h']] = processed_file
         return files_dict
 
     def get_id_from_public_handle(self, public_handle):
         #get node data
-        node_data = self.api_request({'a': 'f', 'f': 1, 'p': public_handle})
+        node_data = self._api_request({'a': 'f', 'f': 1, 'p': public_handle})
         node_id = self.get_id_from_obj(node_data)
         return node_id
 
@@ -320,7 +346,7 @@ class Mega(object):
         """
         Get current remaining disk quota in MegaBytes
         """
-        json_resp = self.api_request({'a': 'uq', 'xfer': 1})
+        json_resp = self._api_request({'a': 'uq', 'xfer': 1})
         #convert bytes to megabyes
         return json_resp['mstrg'] / 1048576
 
@@ -341,7 +367,7 @@ class Mega(object):
             unit_coef = 1048576
         if giga:
             unit_coef = 1073741824
-        json_resp = self.api_request({'a': 'uq', 'xfer': 1, 'strg': 1})
+        json_resp = self._api_request({'a': 'uq', 'xfer': 1, 'strg': 1})
         return {
             'used': json_resp['cstrg'] / unit_coef,
             'total': json_resp['mstrg'] / unit_coef,
@@ -351,7 +377,7 @@ class Mega(object):
         """
         Get account monetary balance, Pro accounts only
         """
-        user_data = self.api_request({"a": "uq", "pro": 1})
+        user_data = self._api_request({"a": "uq", "pro": 1})
         if 'balance' in user_data:
             return user_data['balance']
 
@@ -367,7 +393,7 @@ class Mega(object):
         """
         Delete a file by its url
         """
-        path = self.parse_url(url).split('!')
+        path = self._parse_url(url).split('!')
         public_handle = path[0]
         file_id = self.get_id_from_public_handle(public_handle)
         return self.move(file_id, 4)
@@ -376,7 +402,7 @@ class Mega(object):
         """
         Destroy a file by its private id
         """
-        return self.api_request({'a': 'd',
+        return self._api_request({'a': 'd',
                                  'n': file_id,
                                  'i': self.request_id})
 
@@ -384,7 +410,7 @@ class Mega(object):
         """
         Destroy a file by its url
         """
-        path = self.parse_url(url).split('!')
+        path = self._parse_url(url).split('!')
         public_handle = path[0]
         file_id = self.get_id_from_public_handle(public_handle)
         return self.destroy(file_id)
@@ -400,7 +426,7 @@ class Mega(object):
                 post_list.append({"a": "d",
                                   "n": file,
                                   "i": self.request_id})
-            return self.api_request(post_list)
+            return self._api_request(post_list)
 
     ##########################################################################
     # DOWNLOAD
@@ -408,31 +434,31 @@ class Mega(object):
         """
         Download a file by it's file object
         """
-        self.download_file(None, None, file=file[1], dest_path=dest_path, dest_filename=dest_filename, is_public=False)
+        self._download_file(None, None, file=file[1], dest_path=dest_path, dest_filename=dest_filename, is_public=False)
 
     def download_url(self, url, dest_path=None, dest_filename=None):
         """
         Download a file by it's public url
         """
-        path = self.parse_url(url).split('!')
+        path = self._parse_url(url).split('!')
         file_id = path[0]
         file_key = path[1]
-        self.download_file(file_id, file_key, dest_path, dest_filename, is_public=True)
+        self._download_file(file_id, file_key, dest_path, dest_filename, is_public=True)
 
-    def download_file(self, file_handle, file_key, dest_path=None, dest_filename=None, is_public=False, file=None):
-        if file is None :
+    def _download_file(self, file_handle, file_key, dest_path=None, dest_filename=None, is_public=False, file=None):
+        if file is None:
             if is_public:
                 file_key = base64_to_a32(file_key)
-                file_data = self.api_request({'a': 'g', 'g': 1, 'p': file_handle})
+                file_data = self._api_request({'a': 'g', 'g': 1, 'p': file_handle})
             else:
-                file_data = self.api_request({'a': 'g', 'g': 1, 'n': file_handle})
+                file_data = self._api_request({'a': 'g', 'g': 1, 'n': file_handle})
 
             k = (file_key[0] ^ file_key[4], file_key[1] ^ file_key[5],
                  file_key[2] ^ file_key[6], file_key[3] ^ file_key[7])
             iv = file_key[4:6] + (0, 0)
             meta_mac = file_key[6:8]
         else:
-            file_data = self.api_request({'a': 'g', 'g': 1, 'n': file['h']})
+            file_data = self._api_request({'a': 'g', 'g': 1, 'n': file['h']})
             k = file['k']
             iv = file['iv']
             meta_mac = file['meta_mac']
@@ -519,7 +545,7 @@ class Mega(object):
         #request upload url, call 'u' method
         input_file = open(filename, 'rb')
         file_size = os.path.getsize(filename)
-        ul_url = self.api_request({'a': 'u', 's': file_size})['p']
+        ul_url = self._api_request({'a': 'u', 's': file_size})['p']
 
         #generate random aes key (128) for file
         ul_key = [random.randint(0, 0xFFFFFFFF) for _ in range(6)]
@@ -533,37 +559,41 @@ class Mega(object):
         mac_str = '\0' * 16
         mac_encryptor = AES.new(k_str, AES.MODE_CBC, mac_str)
         iv_str = a32_to_str([ul_key[4], ul_key[5], ul_key[4], ul_key[5]])
+        if file_size > 0:
+            for chunk_start, chunk_size in get_chunks(file_size):
+                chunk = input_file.read(chunk_size)
+                upload_progress += len(chunk)
 
-        for chunk_start, chunk_size in get_chunks(file_size):
-            chunk = input_file.read(chunk_size)
-            upload_progress += len(chunk)
+                encryptor = AES.new(k_str, AES.MODE_CBC, iv_str)
+                for i in range(0, len(chunk)-16, 16):
+                    block = chunk[i:i + 16]
+                    encryptor.encrypt(block)
 
-            encryptor = AES.new(k_str, AES.MODE_CBC, iv_str)
-            for i in range(0, len(chunk)-16, 16):
+                #fix for files under 16 bytes failing
+                if file_size > 16:
+                    i += 16
+                else:
+                    i = 0
+
                 block = chunk[i:i + 16]
-                encryptor.encrypt(block)
+                if len(block) % 16:
+                    block += '\0' * (16 - len(block) % 16)
+                mac_str = mac_encryptor.encrypt(encryptor.encrypt(block))
 
-            #fix for files under 16 bytes failing
-            if file_size > 16:
-                i += 16
-            else:
-                i = 0
+                #encrypt file and upload
+                chunk = aes.encrypt(chunk)
+                output_file = requests.post(ul_url + "/" + str(chunk_start),
+                                            data=chunk, timeout=self.timeout)
+                completion_file_handle = output_file.text
 
-            block = chunk[i:i + 16]
-            if len(block) % 16:
-                block += '\0' * (16 - len(block) % 16)
-            mac_str = mac_encryptor.encrypt(encryptor.encrypt(block))
-
-            #encrypt file and upload
-            chunk = aes.encrypt(chunk)
-            output_file = requests.post(ul_url + "/" + str(chunk_start),
-                                        data=chunk, timeout=self.timeout)
+                if self.options.get('verbose') is True:
+                    # upload progress
+                    print('{0} of {1} uploaded'.format(upload_progress, file_size))
+        else:
+            output_file = requests.post(ul_url + "/0",
+                                            data='', timeout=self.timeout)
             completion_file_handle = output_file.text
-
-            if self.options.get('verbose') is True:
-                # upload progress
-                print('{0} of {1} uploaded'.format(upload_progress, file_size))
-
+            
         file_mac = str_to_a32(mac_str)
 
         #determine meta mac
@@ -580,11 +610,11 @@ class Mega(object):
                ul_key[4], ul_key[5], meta_mac[0], meta_mac[1]]
         encrypted_key = a32_to_base64(encrypt_key(key, self.master_key))
         #update attributes
-        data = self.api_request({'a': 'p', 't': dest, 'n': [{
-                                'h': completion_file_handle,
-                                't': 0,
-                                'a': encrypt_attribs,
-                                'k': encrypted_key}]})
+        data = self._api_request({'a': 'p', 't': dest, 'n': [{
+                                 'h': completion_file_handle,
+                                 't': 0,
+                                 'a': encrypt_attribs,
+                                 'k': encrypted_key}]})
         #close input file and return API msg
         input_file.close()
         return data
@@ -608,7 +638,7 @@ class Mega(object):
         encrypted_key = a32_to_base64(encrypt_key(ul_key[:4], self.master_key))
 
         #update attributes
-        data = self.api_request({'a': 'p',
+        data = self._api_request({'a': 'p',
                                  't': dest,
                                  'n': [{
                                      'h': 'xxxxxxxx',
@@ -629,7 +659,7 @@ class Mega(object):
         encrypted_key = a32_to_base64(encrypt_key(file['key'], self.master_key))
 
         #update attributes
-        data = self.api_request([{
+        data = self._api_request([{
             'a': 'a',
             'attr': encrypt_attribs,
             'key': encrypted_key,
@@ -667,7 +697,7 @@ class Mega(object):
         else:
             file = target[1]
             target_node_id = file['h']
-        return self.api_request({'a': 'm',
+        return self._api_request({'a': 'm',
                                  'n': file_id,
                                  't': target_node_id,
                                  'i': self.request_id})
@@ -698,10 +728,10 @@ class Mega(object):
         if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
             ValidationError('add_contact requires a valid email address')
         else:
-            return self.api_request({'a': 'ur',
-                                    'u': email,
-                                    'l': l,
-                                    'i': self.request_id})
+            return self._api_request({'a': 'ur',
+                                     'u': email,
+                                     'l': l,
+                                     'i': self.request_id})
 
     def get_contacts(self):
         raise NotImplementedError()
@@ -723,21 +753,21 @@ class Mega(object):
         """
         Get size and name from a public url, dict returned
         """
-        file_handle, file_key = self.parse_url(url).split('!')
+        file_handle, file_key = self._parse_url(url).split('!')
         return self.get_public_file_info(file_handle, file_key)
 
     def import_public_url(self, url, dest_node=None, dest_name=None):
         """
         Import the public url into user account
         """
-        file_handle, file_key = self.parse_url(url).split('!')
+        file_handle, file_key = self._parse_url(url).split('!')
         return self.import_public_file(file_handle, file_key, dest_node=dest_node, dest_name=dest_name)
 
     def get_public_file_info(self, file_handle, file_key):
         """
         Get size and name of a public file
         """
-        data = self.api_request({
+        data = self._api_request({
             'a': 'g',
             'p': file_handle,
             'ssm': 1})
@@ -754,7 +784,7 @@ class Mega(object):
 
         size = data['s']
         unencrypted_attrs = decrypt_attr(base64_url_decode(data['at']), k)
-        if not(unencrypted_attrs):
+        if not unencrypted_attrs:
             return None
 
         result = {
@@ -784,7 +814,7 @@ class Mega(object):
         encrypted_key = a32_to_base64(encrypt_key(key, self.master_key))
         encrypted_name = base64_url_encode(encrypt_attr({'n': dest_name}, k))
 
-        data = self.api_request({
+        data = self._api_request({
             'a': 'p',
             't': dest_node['h'],
             'n': [{

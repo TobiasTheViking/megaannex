@@ -1,0 +1,502 @@
+#!/usr/bin/env python2
+import os
+import sys
+import json
+import time
+import inspect
+
+try:
+    dbglevel = int(os.getenv("DBGLEVEL") or 0)
+except:
+    dbglevel = 0
+
+conf = {}
+m = False
+version = "0.2.0"
+plugin = "megaannex-" + version
+
+pwd = os.path.realpath(__file__)
+pwd = pwd[:pwd.rfind("/")]
+if dbglevel:
+    sys.stderr.write("Path: " + repr(pwd) + "\n")
+
+sys.path.append(pwd + '/lib')
+
+import CommonFunctions as common
+import mega
+import errors
+
+if dbglevel > 3:
+    mega_instance = mega.Mega({'verbose': True})  # verbose option for print output
+else:
+    mega_instance = mega.Mega()
+
+
+def login(uname, pword):
+    common.log(uname)
+    global m
+
+    delay = 1
+    while not m and delay < 10:
+        try:
+            common.log("Calling API login Function")
+            # _api_request: https://g.api.mega.co.nz/cs - {'id': 665647559} - [{'a': 'us', 'user': 'mega@tobiasussing.dk', 'uh': 'Uj15kpJ0GK8'}]
+
+            m = mega_instance.login(uname, pword)
+            common.log("Done")
+            return True
+        except errors.RequestError as e:
+            common.log("D2: " + repr(e))
+            if e[0] == -3:
+                common.log("[%s] EAGAIN: Retrying with exponential backoff: %s " %( repr(e[0]), repr(delay)))
+                time.sleep(delay)
+                delay += 1
+            else:
+                common.log("errors.RequestError: " + repr(e))
+                return False
+    return False
+
+def megaUpload(filename, dest=None, dest_filename=None):
+        #determine storage node
+        if dest is None:
+            #if none set, upload to cloud drive node
+            if not hasattr(self, 'root_id'):
+                m.get_files()
+            dest = m.root_id
+
+        #request upload url, call 'u' method
+        input_file = open(filename, 'rb')
+        file_size = os.path.getsize(filename)
+        ul_url = m._api_request({'a': 'u', 's': file_size})['p']
+
+        #generate random aes key (128) for file
+        import random
+        ul_key = [random.randint(0, 0xFFFFFFFF) for _ in range(6)]
+        k_str = mega.a32_to_str(ul_key[:4])
+        count = mega.Counter.new(128, initial_value=((ul_key[4] << 32) + ul_key[5]) << 64)
+        aes = mega.AES.new(k_str, mega.AES.MODE_CTR, counter=count)
+
+        upload_progress = 0
+        completion_file_handle = None
+
+        mac_str = '\0' * 16
+        mac_encryptor = mega.AES.new(k_str, mega.AES.MODE_CBC, mac_str)
+        iv_str = mega.a32_to_str([ul_key[4], ul_key[5], ul_key[4], ul_key[5]])
+        ite = 0
+        if file_size > 0:
+            for chunk_start, chunk_size in mega.get_chunks(file_size):
+                chunk = input_file.read(chunk_size)
+                upload_progress += len(chunk)
+
+                encryptor = mega.AES.new(k_str, mega.AES.MODE_CBC, iv_str)
+                for i in range(0, len(chunk)-16, 16):
+                    block = chunk[i:i + 16]
+                    encryptor.encrypt(block)
+
+                #fix for files under 16 bytes failing
+                if file_size > 16:
+                    i += 16
+                else:
+                    i = 0
+
+                block = chunk[i:i + 16]
+                if len(block) % 16:
+                    block += '\0' * (16 - len(block) % 16)
+                mac_str = mac_encryptor.encrypt(encryptor.encrypt(block))
+
+                #encrypt file and upload
+                chunk = aes.encrypt(chunk)
+                ite += 1
+                common.log("[%s] Posting to %s %s" % (ite, ul_url + "/" + str(chunk_start), len(chunk)), -1)
+                try:
+                    output_file = mega.requests.post(ul_url + "/" + str(chunk_start), data=chunk, timeout=m.timeout)
+                except Exception as e:
+                    common.log("mega.requests.post Exception: " + repr(e), -1)
+                    import time
+                    time.sleep(10)
+                    output_file = mega.requests.post(ul_url + "/" + str(chunk_start), data=chunk, timeout=m.timeout)
+                completion_file_handle = output_file.text
+
+                common.progress(file_size, upload_progress)
+        else:
+            output_file = requests.post(ul_url + "/0",
+                                            data='', timeout=m.timeout)
+            completion_file_handle = output_file.text
+
+        file_mac = mega.str_to_a32(mac_str)
+
+        #determine meta mac
+        meta_mac = (file_mac[0] ^ file_mac[1], file_mac[2] ^ file_mac[3])
+
+        if dest_filename is not None:
+            attribs = {'n': dest_filename}
+        else:
+            attribs = {'n': os.path.basename(filename)}
+
+        encrypt_attribs = mega.base64_url_encode(mega.encrypt_attr(attribs, ul_key[:4]))
+        key = [ul_key[0] ^ ul_key[4], ul_key[1] ^ ul_key[5],
+               ul_key[2] ^ meta_mac[0], ul_key[3] ^ meta_mac[1],
+               ul_key[4], ul_key[5], meta_mac[0], meta_mac[1]]
+        encrypted_key = mega.a32_to_base64(mega.encrypt_key(key, m.master_key))
+        #update attributes
+        data = m._api_request({'a': 'p', 't': dest, 'n': [{
+                                 'h': completion_file_handle,
+                                 't': 0,
+                                 'a': encrypt_attribs,
+                                 'k': encrypted_key}]})
+        #close input file and return API msg
+        input_file.close()
+        return data
+
+
+def postFile(subject, filename, folder):
+    common.log("%s to %s - %s" % ( repr(filename), folder[0], subject))
+    global m
+    
+    file = findInFolder(subject, folder)
+    if file:
+        common.log("File already exists: " + repr(file))
+        return True
+
+    delay = 1
+    res = False
+    while not res and delay < 10:
+        try:
+            common.log("Posting file")
+            #res = m.upload(filename, dest=folder[0], dest_filename=subject)
+            res = megaUpload(filename, dest=folder[0], dest_filename=subject)
+        except errors.RequestError as e:
+            if e[0] == -3:
+                common.log("[%s] EAGAIN: Retrying with exponential backoff: %s " %( repr(e[0]), repr(delay)))
+                time.sleep(delay)
+                delay += 1
+            else:
+                common.log("errors.RequestError: " + repr(e))
+                return False
+
+    if res:
+        common.log("Done: " + repr(res["f"][0]["h"]))
+        return True
+    else:
+        return False
+
+def findInFolder(subject, folder):
+    common.log("%s - %s" % (repr(subject), repr(folder)), 3)
+    if isinstance(folder, int):
+        folder = [folder]
+
+    delay = 1
+    while delay < 10:
+        try:
+            files = m.get_files_in_node(folder[0]).items()
+            common.log("files: " + repr(len(files)))
+            if len(files) == 0:
+                common.log("Empty folder, breaking")
+                break
+            for file in files:
+                if file[1]['a'] and file[1]['a']['n'] == subject:
+                    common.log("found file: " + repr(file), 3)
+                    return file
+            if len(files) > 0:
+                break
+        except errors.RequestError as e:
+            if e[0] == -3:
+                common.log("[%s] EAGAIN: Retrying with exponential backoff: %s " %( repr(e[0]), repr(delay)))
+                time.sleep(delay)
+                delay += 1
+            else:
+                common.log("errors.RequestError: " + repr(e))
+    common.log("Failure")
+    return False
+
+def checkFile(subject, folder):
+    common.log(subject)
+    global m
+
+    file = findInFolder(subject, folder)
+    if file:
+        common.log("Found: " + repr(file))
+        return True
+    else:
+        common.log("Failure")
+        return False
+
+def megaDownload(file, dest_path, dest_filename):
+    file = file[1]
+    file_handle = None
+    file_key = None
+    is_public = False
+
+    file_data = mega_instance._api_request({'a': 'g', 'g': 1, 'n': file['h']})
+    k = file['k']
+    iv = file['iv']
+    meta_mac = file['meta_mac']
+
+    # Seems to happens sometime... When  this occurs, files are                                                                                           
+    # inaccessible also in the official also in the official web app.                                                                                     
+    # Strangely, files can come back later.                                                                                                               
+    if 'g' not in file_data:
+        raise mega.RequestError('File not accessible anymore')
+    file_url = file_data['g']
+    file_size = file_data['s']
+    attribs = mega.base64_url_decode(file_data['at'])
+    attribs = mega.decrypt_attr(attribs, k)
+    
+    if dest_filename is not None:
+        file_name = dest_filename
+    else:
+        file_name = attribs['n']
+
+    ret = common.fetchPage({"link": file_url, "progress": True})
+    input_file = ret["content"]
+    if dest_path is None:
+        dest_path = ''
+    else:
+        dest_path += '/'
+
+    temp_output_file = mega.tempfile.NamedTemporaryFile(mode='w+b', prefix='megapy_', delete=False)
+
+    k_str = mega.a32_to_str(k)
+    counter = mega.Counter.new(
+        128, initial_value=((iv[0] << 32) + iv[1]) << 64)
+    aes = mega.AES.new(k_str, mega.AES.MODE_CTR, counter=counter)
+
+    mac_str = '\0' * 16
+    mac_encryptor = mega.AES.new(k_str, mega.AES.MODE_CBC, mac_str)
+    iv_str = mega.a32_to_str([iv[0], iv[1], iv[0], iv[1]])
+
+    for chunk_start, chunk_size in mega.get_chunks(file_size):
+        #chunk = input_file.read(chunk_size)
+        chunk = input_file[:chunk_size]
+        input_file = input_file[chunk_size:]
+        
+        chunk = aes.decrypt(chunk)
+        temp_output_file.write(chunk)
+
+        encryptor = mega.AES.new(k_str, mega.AES.MODE_CBC, iv_str)
+        for i in range(0, len(chunk)-16, 16):
+            block = chunk[i:i + 16]
+            encryptor.encrypt(block)
+
+        #fix for files under 16 bytes failing                                                                                                             
+        if file_size > 16:
+            i += 16
+        else:
+            i = 0
+
+        block = chunk[i:i + 16]
+        if len(block) % 16:
+            block += '\0' * (16 - (len(block) % 16))
+        mac_str = mac_encryptor.encrypt(encryptor.encrypt(block))
+
+    file_mac = mega.str_to_a32(mac_str)
+
+    temp_output_file.close()
+
+    # check mac integrity                                                                                                                                 
+    if (file_mac[0] ^ file_mac[1], file_mac[2] ^ file_mac[3]) != meta_mac:
+        raise ValueError('Mismatched mac')
+
+    mega.shutil.move(temp_output_file.name, dest_path + file_name)
+
+def getFile(subject, filename, folder):
+    common.log(subject)
+    global m
+
+    file = findInFolder(subject, folder)
+    if file:
+        dest, dest_filename = os.path.split(filename)
+
+        delay = 1
+        res = False
+        while not res and delay < 10:
+            try:
+                #m.download(file, dest_path=dest, dest_filename=dest_filename)
+                megaDownload(file, dest_path=dest, dest_filename=dest_filename)
+                res = True
+            except errors.RequestError as e:
+                if e[0] == -3:
+                    common.log("[%s] EAGAIN: Retrying with exponential backoff: %s " %( repr(e[0]), repr(delay)))
+                    time.sleep(delay)
+                    delay += 1
+                else:
+                    common.log("errors.RequestError: " + repr(e))
+                    sys.exit(1)
+
+        common.log("Done: " + repr(res))
+        return True
+    else:
+        common.log("Failure")
+        return False
+
+def deleteFile(subject, folder):
+    common.log(subject)
+    global m
+
+    file = findInFolder(subject, folder)
+
+    if file:
+        delay = 1
+        res = False
+        while not res and delay < 10:
+            try:
+                res = m.destroy(file[0])
+            except errors.RequestError as e:
+                if e[0] == -3:
+                    common.log("[%s] EAGAIN: Retrying with exponential backoff: %s " %( repr(e[0]), repr(delay)))
+                    time.sleep(delay)
+                    delay += 1
+                else:
+                    common.log("errors.RequestError: " + repr(e))
+                    sys.exit(1)
+
+        common.log("Done: " + repr(res))
+        return True
+    else:
+        common.log("Failure")
+        return False
+
+def createFolder(subject, folder):
+    common.log("%s - %s" % (subject, folder))
+
+    delay = 1
+    res = False
+    while not res and delay < 10:
+        try:
+            res = m.create_folder(subject, folder)
+        except errors.RequestError as e:
+            if e[0] == -3:
+                common.log("[%s] EAGAIN: Retrying with exponential backoff: %s " %( repr(e[0]), repr(delay)))
+                time.sleep(delay)
+                delay += 1
+            else:
+                common.log("errors.RequestError: " + repr(e))
+                sys.exit(1)
+    if res:
+        common.log("Done: " + repr(res))
+        return res
+    else:
+        return False
+
+def setFolder(base, keys):
+    common.log(repr(base) + " - " + repr(keys))
+    keys = keys.replace("VALUE ", "").split("/")
+    folder = findInFolder(base, 2)
+    if folder:
+        common.log("Using folder: " + repr(folder))
+        ANNEX_FOLDER = folder
+    else:
+        folder = createFolder(conf["folder"], 2)
+        common.log("created folder0: " + repr(folder))
+        ANNEX_FOLDER = [folder["f"][0]["h"]]
+        
+    folder = findInFolder(keys[0], ANNEX_FOLDER)
+    if folder:
+        common.log("Using folder1: " + repr(folder))
+        ANNEX_FOLDER = folder
+    elif keys[0]:
+        folder = createFolder(keys[0], ANNEX_FOLDER[0])
+        common.log("created folder1: " + repr(folder))
+        ANNEX_FOLDER = [folder["f"][0]["h"]]
+
+    folder = findInFolder(keys[1], ANNEX_FOLDER)
+
+    if folder:
+        common.log("Using folder2: " + repr(folder))
+        ANNEX_FOLDER = folder
+    elif keys[1]:
+        folder = createFolder(keys[1], ANNEX_FOLDER[0])
+        common.log("created folder2: " + repr(folder))
+        ANNEX_FOLDER = [folder["f"][0]["h"]]
+    return ANNEX_FOLDER
+
+
+## gaproto interface
+
+def initremote(line):
+    common.log("")
+
+    uname = os.getenv("USERNAME") or ""
+    pword = os.getenv("PASSWORD") or ""
+                
+    encryption = common.getConfig("encryption")
+    myfolder = common.getConfig("folder")
+
+    if len(uname) and len(pword) and len(myfolder):
+        common.sprint('SETCREDS mycreds ' + uname + ' ' + pword)
+        common.sprint('INITREMOTE-SUCCESS')
+    else:
+        common.sprint('INITREMOTE-FAILURE You need to set USERNAME and PASSWORD environment variables and folder and encryption parameters when running initremote.')
+    common.log("Done")
+
+def prepare(line):
+    common.log("")
+    creds = common.getCreds()
+
+    creds = common.getCreds()
+    myfolder = common.getConfig("folder")
+    encryption = common.getConfig("encryption")
+
+    if len(creds) > 1 and len(myfolder) and ( len(creds[1]) and len(creds[2])):
+        conf["uname"] = creds[1]
+        conf["pword"] = creds[2]
+        conf["folder"] = myfolder
+        common.updateWanted(False, False)
+        common.sprint('DEBUG ' + plugin)
+        if login(conf["uname"], conf["pword"]):
+            common.sprint('PREPARE-SUCCESS')
+        else:
+            common.sprint('PREPARE-FAILURE Login failure.')
+    else:
+        common.sprint('PREPARE-FAILURE You need to set USERNAME and PASSWORD environment variables and folder and encryption parameters for the remote.')
+    common.log("")
+
+def transfer(line):
+    common.log("")
+
+    folder = setFolder(conf["folder"], common.ask("DIRHASH " + line[2]))
+
+    if line[1] == "STORE":
+        if postFile(line[2], " ".join(line[3:]), folder):
+            common.sprint('TRANSFER-SUCCESS STORE ' + line[2] + '')
+        else:
+            common.sprint('TRANSFER-FAILURE STORE ' + line[2] + ' File could not be stored')
+    if line[1] == "RETRIEVE":
+        if getFile(line[2], " ".join(line[3:]), folder):
+            common.sprint('TRANSFER-SUCCESS RETRIEVE ' + line[2] + '')
+        else:
+            common.sprint('TRANSFER-FAILURE RETRIEVE ' + line[2] + ' File could not be retrieved')
+    common.log("Done")
+
+def checkpresent(line):
+    common.log("")
+    folder = setFolder(conf["folder"], common.ask("DIRHASH " + line[1]))
+    if not len(folder):
+        common.sprint('CHECKPRESENT-UNKNOWN ' + line[1] + ' this remote is not currently available')
+        return None
+
+    if checkFile(line[1], folder):
+        common.sprint('CHECKPRESENT-SUCCESS ' + line[1] + '')
+    else:
+        common.sprint('CHECKPRESENT-FAILURE ' + line[1] + '')
+    common.log("Done")
+
+def remove(line):
+    common.log("")
+    folder = setFolder(conf["folder"], common.ask("DIRHASH " + line[1]))
+                
+    if deleteFile(line[1], folder):
+        common.sprint('REMOVE-SUCCESS ' + line[1] + '')
+    else:
+        common.sprint('REMOVE-FAILURE ' + line[1] + ' This file could not be removed')
+    common.log("Done")
+
+def getCost():
+    common.log("", 3)
+    common.sprint("COST 150")
+
+t = time.time()
+common.log("Starting", 0)
+if __name__ == '__main__':
+    common.startRemote()
+common.log("STOP: %ss" % int(time.time() - t))

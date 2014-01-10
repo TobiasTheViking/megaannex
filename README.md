@@ -19,14 +19,11 @@ Clone the git repository in your home folder.
 This should make a ~/megaannex folder
 
 # Setup
-Run the program once to make an empty config file
+Make the file executable, and link it into PATH
 
-    cd ~/megaannex; python2 megaannex.py
-
-Edit the megaannex.conf file. Add your mega.co.nz username, password and folder name.
+    cd ~/megaannex; chmod +x git-annex-remote-mega; sudo ln -sf `pwd`/git-annex-remote-mega /usr/local/bin/git-annex-remote-mega
 
 # Commands for gitannex:
 
-    git config annex.mega-hook '/usr/bin/python2 ~/megaannex/megaannex.py'
-    git annex initremote mega type=hook hooktype=mega encryption=shared
+    USERNAME="user" PASSWORD="pword" git annex initremote mega type=external externaltype=mega encryption=shared folder=gitannex
     git annex describe mega "the mega.co.nz library"
