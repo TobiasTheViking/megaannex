@@ -12,7 +12,7 @@ except:
 
 conf = {}
 m = False
-version = "0.2.0"
+version = "0.2.1"
 plugin = "megaannex-" + version
 
 pwd = os.path.realpath(__file__)
@@ -31,6 +31,7 @@ if dbglevel > 3:
 else:
     mega_instance = mega.Mega()
 
+cache = {}
 
 def login(uname, pword):
     common.log(uname)
@@ -40,7 +41,6 @@ def login(uname, pword):
     while not m and delay < 10:
         try:
             common.log("Calling API login Function")
-            # _api_request: https://g.api.mega.co.nz/cs - {'id': 665647559} - [{'a': 'us', 'user': 'mega@tobiasussing.dk', 'uh': 'Uj15kpJ0GK8'}]
 
             m = mega_instance.login(uname, pword)
             common.log("Done")
@@ -107,7 +107,7 @@ def megaUpload(filename, dest=None, dest_filename=None):
                 #encrypt file and upload
                 chunk = aes.encrypt(chunk)
                 ite += 1
-                common.log("[%s] Posting to %s %s" % (ite, ul_url + "/" + str(chunk_start), len(chunk)), -1)
+                common.log("[%s] Posting to %s %s" % (ite, ul_url + "/" + str(chunk_start), len(chunk)))
                 try:
                     output_file = mega.requests.post(ul_url + "/" + str(chunk_start), data=chunk, timeout=m.timeout)
                 except Exception as e:
@@ -182,30 +182,42 @@ def postFile(subject, filename, folder):
 
 def findInFolder(subject, folder):
     common.log("%s - %s" % (repr(subject), repr(folder)), 3)
+    global cache
+
     if isinstance(folder, int):
         folder = [folder]
+
+    tpath = (str(folder[0]) + "/" + subject).replace("//", "/")
+    if tpath in cache:
+        common.log("Returning from cache")
+        return cache[tpath]
 
     delay = 1
     while delay < 10:
         try:
             files = m.get_files_in_node(folder[0]).items()
-            common.log("files: " + repr(len(files)))
-            if len(files) == 0:
-                common.log("Empty folder, breaking")
-                break
+            common.log("files: " + repr(len(files)), 3)
             for file in files:
-                if file[1]['a'] and file[1]['a']['n'] == subject:
+                if file[1]['a']:
                     common.log("found file: " + repr(file), 3)
-                    return file
-            if len(files) > 0:
-                break
+		    cache[(str(folder[0]) + "/" + file[1]['a']['n']).replace("//", "/")] = file
+                    #return file
+            break
         except errors.RequestError as e:
             if e[0] == -3:
                 common.log("[%s] EAGAIN: Retrying with exponential backoff: %s " %( repr(e[0]), repr(delay)))
                 time.sleep(delay)
                 delay += 1
             else:
-                common.log("errors.RequestError: " + repr(e))
+                common.log("errors.RequestError: " + repr(e), -1)
+
+    common.log("Updated cache: " + repr(cache), 3)
+    for tmp_file in cache.keys():
+        common.log("folder: " + tmp_file + " - " + tpath, 3)
+        if tmp_file == tpath:
+            common.log("Done: " + repr(cache[tmp_file]), 0)
+            return cache[tmp_file]
+
     common.log("Failure")
     return False
 
@@ -383,30 +395,30 @@ def setFolder(base, keys):
     keys = keys.replace("VALUE ", "").split("/")
     folder = findInFolder(base, 2)
     if folder:
-        common.log("Using folder: " + repr(folder))
+        common.log("Using folder: " + repr(folder), 1)
         ANNEX_FOLDER = folder
     else:
         folder = createFolder(conf["folder"], 2)
-        common.log("created folder0: " + repr(folder))
+        common.log("created folder0: " + repr(folder), 1)
         ANNEX_FOLDER = [folder["f"][0]["h"]]
         
     folder = findInFolder(keys[0], ANNEX_FOLDER)
     if folder:
-        common.log("Using folder1: " + repr(folder))
+        common.log("Using folder1: " + repr(folder), 1)
         ANNEX_FOLDER = folder
     elif keys[0]:
         folder = createFolder(keys[0], ANNEX_FOLDER[0])
-        common.log("created folder1: " + repr(folder))
+        common.log("created folder1: " + repr(folder), 1)
         ANNEX_FOLDER = [folder["f"][0]["h"]]
 
     folder = findInFolder(keys[1], ANNEX_FOLDER)
 
     if folder:
-        common.log("Using folder2: " + repr(folder))
+        common.log("Using folder2: " + repr(folder), 1)
         ANNEX_FOLDER = folder
     elif keys[1]:
         folder = createFolder(keys[1], ANNEX_FOLDER[0])
-        common.log("created folder2: " + repr(folder))
+        common.log("created folder2: " + repr(folder), 1)
         ANNEX_FOLDER = [folder["f"][0]["h"]]
     return ANNEX_FOLDER
 
@@ -431,8 +443,6 @@ def initremote(line):
 
 def prepare(line):
     common.log("")
-    creds = common.getCreds()
-
     creds = common.getCreds()
     myfolder = common.getConfig("folder")
     encryption = common.getConfig("encryption")
